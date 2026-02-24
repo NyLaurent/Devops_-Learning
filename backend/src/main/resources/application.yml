@@ -1,0 +1,87 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: product-service
+  
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5437}/${POSTGRES_DB:ecommerce}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+      environment: ${ENVIRONMENT:development}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.9, 0.95, 0.99
+    web:
+      server:
+        auto-time-requests: true
+
+# Swagger/OpenAPI Configuration
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+    tryItOutEnabled: true
+  show-actuator: true
+
+# OpenAPI Configuration
+openapi:
+  info:
+    title: E-Commerce Product Service API
+    description: REST API for managing products and categories in the E-Commerce Platform
+    version: 1.0.0
+    contact:
+      name: E-Commerce Platform Team
+      email: support@ecommerce-platform.com
+    license:
+      name: MIT License
+      url: https://opensource.org/licenses/MIT
+  servers:
+    - url: http://localhost:8080
+      description: Development server
+    - url: http://localhost:8080
+      description: Production server
+
+logging:
+  level:
+    com.ecommerce: DEBUG
+    org.springframework.web: DEBUG

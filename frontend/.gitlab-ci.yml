@@ -1,0 +1,205 @@
+# Frontend CI/CD Pipeline
+# GitLab Runner Tag: staging
+
+stages:
+  - build
+  - test
+  - build-docker
+  - deploy
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  FRONTEND_IMAGE_NAME: $CI_REGISTRY_IMAGE/frontend
+  SERVICE_DIR: frontend
+
+# Cache Node modules for faster builds
+.node_cache: &node_cache
+  cache:
+    key: frontend-node-$CI_COMMIT_REF_SLUG
+    paths:
+      - node_modules/
+      - .npm/
+
+# Frontend Build Job
+build:frontend:
+  stage: build
+  tags:
+    - staging
+  image: node:18-alpine
+  <<: *node_cache
+  script:
+    - echo "Installing dependencies..."
+    - npm ci --prefer-offline --no-audit
+    - echo "Building React frontend application..."
+    - npm run build
+  artifacts:
+    paths:
+      - build/
+    expire_in: 1 hour
+  only:
+    changes:
+      - frontend/**/*
+      - "*.gitlab-ci.yml"
+    refs:
+      - main
+      - develop
+      - merge_requests
+
+# Frontend Test Job
+test:frontend:
+  stage: test
+  tags:
+    - staging
+  image: node:18-alpine
+  <<: *node_cache
+  script:
+    - echo "Installing dependencies..."
+    - npm ci --prefer-offline --no-audit
+    - echo "Running frontend tests..."
+    - npm test -- --watchAll=false --coverage
+  coverage: '/Lines\s*:\s*(\d+\.?\d*)%/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+    paths:
+      - coverage/
+    expire_in: 1 week
+  only:
+    changes:
+      - frontend/**/*
+      - "*.gitlab-ci.yml"
+    refs:
+      - main
+      - develop
+      - merge_requests
+
+# Build Frontend Docker Image
+build-docker:frontend:
+  stage: build-docker
+  tags:
+    - staging
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - echo "Building frontend Docker image..."
+    - |
+      docker build \
+        --tag $FRONTEND_IMAGE_NAME:$CI_COMMIT_SHORT_SHA \
+        --tag $FRONTEND_IMAGE_NAME:latest \
+        --tag $FRONTEND_IMAGE_NAME:$CI_COMMIT_REF_SLUG \
+        --build-arg REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8080/api} \
+        --file Dockerfile \
+        .
+    - echo "Pushing frontend Docker image to registry..."
+    - docker push $FRONTEND_IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+    - docker push $FRONTEND_IMAGE_NAME:latest
+    - docker push $FRONTEND_IMAGE_NAME:$CI_COMMIT_REF_SLUG
+  after_script:
+    - docker logout $CI_REGISTRY
+  dependencies:
+    - build:frontend
+    - test:frontend
+  only:
+    changes:
+      - frontend/**/*
+      - "*.gitlab-ci.yml"
+    refs:
+      - main
+      - develop
+
+# Deploy Frontend to Staging
+deploy:frontend:staging:
+  stage: deploy
+  tags:
+    - staging
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl docker-cli docker-compose kubectl
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - echo "Deploying frontend to staging environment..."
+    - |
+      if [ -f ../docker-compose.yml ]; then
+        echo "Using Docker Compose deployment..."
+        cd ..
+        # Update image tag in docker-compose.yml
+        sed -i "s|image:.*frontend.*|image: $FRONTEND_IMAGE_NAME:$CI_COMMIT_SHORT_SHA|g" docker-compose.yml
+        # Deploy using docker-compose
+        docker-compose pull frontend
+        docker-compose up -d frontend
+        # Health check
+        echo "Waiting for frontend to be healthy..."
+        sleep 15
+        curl -f http://localhost:3000/health || curl -f http://localhost:3000 || exit 1
+      elif [ -f ../k8s/frontend/deployment.yaml ]; then
+        echo "Using Kubernetes deployment..."
+        cd ..
+        # Update image in deployment.yaml
+        sed -i "s|image:.*frontend.*|image: $FRONTEND_IMAGE_NAME:$CI_COMMIT_SHORT_SHA|g" k8s/frontend/deployment.yaml
+        # Apply Kubernetes deployment
+        kubectl apply -f k8s/frontend/deployment.yaml
+        kubectl rollout status deployment/frontend -n ecommerce
+        # Health check via kubectl
+        kubectl wait --for=condition=available --timeout=300s deployment/frontend -n ecommerce
+      else
+        echo "No deployment configuration found!"
+        exit 1
+      fi
+    - echo "Frontend deployment completed successfully!"
+  environment:
+    name: staging/frontend
+    url: http://staging-frontend.example.com:3000
+  only:
+    changes:
+      - frontend/**/*
+      - "*.gitlab-ci.yml"
+    refs:
+      - main
+      - develop
+  when: on_success
+
+# Rollback Frontend (Manual)
+rollback:frontend:staging:
+  stage: deploy
+  tags:
+    - staging
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl docker-cli docker-compose kubectl
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - echo "Rolling back frontend deployment..."
+    - |
+      if [ -z "$ROLLBACK_IMAGE_TAG" ]; then
+        echo "Error: ROLLBACK_IMAGE_TAG variable must be set"
+        exit 1
+      fi
+      if [ -f ../docker-compose.yml ]; then
+        cd ..
+        sed -i "s|image:.*frontend.*|image: $FRONTEND_IMAGE_NAME:$ROLLBACK_IMAGE_TAG|g" docker-compose.yml
+        docker-compose up -d frontend
+      elif [ -f ../k8s/frontend/deployment.yaml ]; then
+        cd ..
+        sed -i "s|image:.*frontend.*|image: $FRONTEND_IMAGE_NAME:$ROLLBACK_IMAGE_TAG|g" k8s/frontend/deployment.yaml
+        kubectl apply -f k8s/frontend/deployment.yaml
+        kubectl rollout status deployment/frontend -n ecommerce
+      fi
+    - echo "Frontend rollback completed!"
+  environment:
+    name: staging/frontend
+    action: rollback
+  when: manual
+  only:
+    changes:
+      - frontend/**/*
+      - "*.gitlab-ci.yml"
+    refs:
+      - main
+      - develop
+

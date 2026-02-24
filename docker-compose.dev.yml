@@ -1,0 +1,33 @@
+version: '3.8'
+
+# Development override for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_JPA_SHOW_SQL: "true"
+      SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL: "true"
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/logs:/app/logs
+    command: ["./mvnw", "spring-boot:run", "-Dspring-boot.run.jvmArguments='-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=*:5005'"]
+    ports:
+      - "8080:8080"
+      - "5005:5005"  # Debug port
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    environment:
+      REACT_APP_API_URL: http://localhost:8080/api
+      CHOKIDAR_USEPOLLING: "true"
+    command: ["npm", "start"]

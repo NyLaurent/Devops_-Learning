@@ -1,0 +1,127 @@
+version: '3.9'
+
+x-backend-env: &backend-env
+  SPRING_PROFILES_ACTIVE: docker
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+  POSTGRES_USER: ${POSTGRES_USER:-ecommerce}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ecommerce123}
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ecommerce}
+  SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-ecommerce}
+  SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-ecommerce123}
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+      POSTGRES_USER: ${POSTGRES_USER:-ecommerce}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ecommerce123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ecommerce-overlay
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ecommerce} -d ${POSTGRES_DB:-ecommerce}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  backend:
+    image: ${BACKEND_IMAGE:-registry.example.com/devop-app/backend:latest}
+    environment: *backend-env
+    ports:
+      - target: 8080
+        published: 8080
+        protocol: tcp
+        mode: ingress
+    networks:
+      - ecommerce-overlay
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    deploy:
+      mode: replicated
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 10s
+    volumes:
+      - backend_logs:/app/logs
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-registry.example.com/devop-app/frontend:latest}
+    environment:
+      REACT_APP_API_URL: http://backend:8080/api
+    ports:
+      - target: 3000
+        published: 3000
+        protocol: tcp
+        mode: ingress
+    networks:
+      - ecommerce-overlay
+    deploy:
+      mode: replicated
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 2
+        delay: 5s
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - ecommerce-overlay
+    volumes:
+      - redis_data:/data
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "com.devop.role=cache"
+
+  nginx:
+    image: nginx:alpine
+    configs:
+      - source: nginx_conf
+        target: /etc/nginx/nginx.conf
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: ingress
+    networks:
+      - ecommerce-overlay
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "com.devop.role=edge"
+
+volumes:
+  postgres_data:
+  backend_logs:
+  redis_data:
+
+networks:
+  ecommerce-overlay:
+    driver: overlay
+
+configs:
+  nginx_conf:
+    file: ./frontend/nginx.conf

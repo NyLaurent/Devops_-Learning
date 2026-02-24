@@ -1,0 +1,38 @@
+# Root CI/CD Pipeline Configuration
+# Includes separate pipelines for backend and frontend
+
+include:
+  - local: 'backend/.gitlab-ci.yml'
+  - local: 'frontend/.gitlab-ci.yml'
+  - local: 'load-tests/.gitlab-ci.yml'
+
+# Global variables
+variables:
+  CI_REGISTRY: $CI_REGISTRY_IMAGE
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+
+# Optional: Job to validate both services are working together
+validate:integration:
+  stage: deploy
+  tags:
+    - staging
+  image: alpine:latest
+  script:
+    - apk add --no-cache curl
+    - echo "Validating integration between frontend and backend..."
+    - |
+      if [ -f docker-compose.yml ]; then
+        echo "Checking backend health..."
+        curl -f http://localhost:8080/actuator/health || exit 1
+        echo "Checking frontend health..."
+        curl -f http://localhost:3000 || curl -f http://localhost:3000/health || exit 1
+        echo "Integration validation successful!"
+      else
+        echo "Docker Compose not available for integration testing"
+      fi
+  only:
+    - main
+    - develop
+  when: manual
+  allow_failure: true
