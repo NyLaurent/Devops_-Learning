@@ -1,0 +1,63 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ecommerce-prod
+
+resources:
+  - ../../base/namespace.yaml
+  - ../../base/configmap.yaml
+  - ../../base/secrets.yaml
+  - ../../base/network-policy.yaml
+  - ../../backend/deployment.yaml
+  - ../../backend/service.yaml
+  - ../../backend/hpa.yaml
+  - ../../frontend/deployment.yaml
+  - ../../frontend/service.yaml
+  - ../../postgres/statefulset.yaml
+  - ../../postgres/service.yaml
+  - ../../redis/deployment.yaml
+  - ../../redis/service.yaml
+  - ../../ingress/ingress.yaml
+
+patches:
+  - patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: ecommerce-prod
+    target:
+      kind: Namespace
+  - patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: ecommerce-prod
+    target:
+      kind: ConfigMap
+  - patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: ecommerce-prod
+    target:
+      kind: Secret
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      name: backend
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      name: frontend
+
+images:
+  - name: <registry>/devop-app/backend
+    newName: <registry>/devop-app/backend
+    newTag: latest
+  - name: <registry>/devop-app/frontend
+    newName: <registry>/devop-app/frontend
+    newTag: latest
+

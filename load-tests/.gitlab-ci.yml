@@ -1,0 +1,133 @@
+# Load Tests CI/CD Pipeline
+# GitLab Runner Tag: staging
+
+stages:
+  - load-test
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+  GATLING_SIMULATION_CLASS: "com.ecommerce.simulations.EcommerceSimulation"
+  BASE_URL: "${CI_ENVIRONMENT_URL:-http://localhost:8080}"
+
+# Cache Maven dependencies
+.maven_cache: &maven_cache
+  cache:
+    key: load-tests-maven-$CI_COMMIT_REF_SLUG
+    paths:
+      - .m2/repository/
+
+# Load Test Job - Normal Load
+load-test:normal:
+  stage: load-test
+  tags:
+    - staging
+  image: maven:3.9.9-eclipse-temurin-21
+  <<: *maven_cache
+  variables:
+    simulationType: "normal"
+  script:
+    - echo "Running normal load test against: $BASE_URL"
+    - mvn clean gatling:test -DbaseUrl=$BASE_URL -DsimulationType=$simulationType
+  artifacts:
+    when: always
+    paths:
+      - target/gatling/**/*
+    reports:
+      junit: target/gatling/**/simulation.log
+    expire_in: 1 week
+  only:
+    changes:
+      - load-tests/**/*
+      - "*.gitlab-ci.yml"
+    refs:
+      - main
+      - develop
+  when: manual
+  allow_failure: true
+
+# Load Test Job - Stress Test
+load-test:stress:
+  stage: load-test
+  tags:
+    - staging
+  image: maven:3.9.9-eclipse-temurin-21
+  <<: *maven_cache
+  variables:
+    simulationType: "stress"
+  script:
+    - echo "Running stress test against: $BASE_URL"
+    - mvn clean gatling:test -DbaseUrl=$BASE_URL -DsimulationType=$simulationType
+  artifacts:
+    when: always
+    paths:
+      - target/gatling/**/*
+    reports:
+      junit: target/gatling/**/simulation.log
+    expire_in: 1 week
+  only:
+    changes:
+      - load-tests/**/*
+      - "*.gitlab-ci.yml"
+    refs:
+      - main
+      - develop
+  when: manual
+  allow_failure: true
+
+# Load Test Job - Spike Test
+load-test:spike:
+  stage: load-test
+  tags:
+    - staging
+  image: maven:3.9.9-eclipse-temurin-21
+  <<: *maven_cache
+  variables:
+    simulationType: "spike"
+  script:
+    - echo "Running spike test against: $BASE_URL"
+    - mvn clean gatling:test -DbaseUrl=$BASE_URL -DsimulationType=$simulationType
+  artifacts:
+    when: always
+    paths:
+      - target/gatling/**/*
+    reports:
+      junit: target/gatling/**/simulation.log
+    expire_in: 1 week
+  only:
+    changes:
+      - load-tests/**/*
+      - "*.gitlab-ci.yml"
+    refs:
+      - main
+      - develop
+  when: manual
+  allow_failure: true
+
+# Load Test Job - Endurance Test
+load-test:endurance:
+  stage: load-test
+  tags:
+    - staging
+  image: maven:3.9.9-eclipse-temurin-21
+  <<: *maven_cache
+  variables:
+    simulationType: "endurance"
+  script:
+    - echo "Running endurance test against: $BASE_URL"
+    - mvn clean gatling:test -DbaseUrl=$BASE_URL -DsimulationType=$simulationType
+  artifacts:
+    when: always
+    paths:
+      - target/gatling/**/*
+    reports:
+      junit: target/gatling/**/simulation.log
+    expire_in: 1 week
+  only:
+    changes:
+      - load-tests/**/*
+      - "*.gitlab-ci.yml"
+    refs:
+      - main
+      - develop
+  when: manual
+  allow_failure: true
